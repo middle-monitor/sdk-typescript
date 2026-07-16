@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { EventEmitter } from 'events';
-import { captureExceptionErrors } from '../expressMiddleware';
+import { trace, context as otelContext } from '@opentelemetry/api';
+import { captureExceptionErrors, expressMiddleware } from '../expressMiddleware';
 import { init, _resetGlobalClientForTesting } from '../index';
 import { _resetGlobalOTelClientForTesting } from '../client';
 import { newConfig } from '../config';
@@ -30,8 +31,27 @@ function makeReqRes(statusCode: number, body?: string, reqBody?: unknown) {
     statusCode,
     end: vi.fn(function (this: any, chunk?: any, ...args: any[]) { return this; }),
   });
-  const req = { body: reqBody, method: 'GET', originalUrl: '/test', url: '/test' };
+  const req = {
+    body: reqBody,
+    method: 'GET',
+    originalUrl: '/test',
+    url: '/test',
+    path: '/test',
+    headers: {},
+  };
   return { req, res };
+}
+
+function makeFakeSpan() {
+  return {
+    setAttribute: vi.fn(),
+    setAttributes: vi.fn(),
+    setStatus: vi.fn(),
+    recordException: vi.fn(),
+    end: vi.fn(),
+    isRecording: () => true,
+    spanContext: () => ({ traceId: '0'.repeat(32), spanId: '0'.repeat(16), traceFlags: 1 }),
+  };
 }
 
 describe('captureExceptionErrors', () => {
@@ -179,5 +199,118 @@ describe('captureExceptionErrors', () => {
     // Second call: remain = 4096 - 4096 = 0, so if (remain > 0) is false
     (res as any).end(Buffer.alloc(100, 'b'));
     res.emit('finish');
+  });
+});
+
+describe('expressMiddleware', () => {
+  it('returns a middleware function', () => {
+    expect(typeof expressMiddleware()).toBe('function');
+  });
+
+  it('calls next() without tracing when no global client', async () => {
+    resetAll();
+    vi.spyOn(await import('../index'), 'getGlobalClient').mockReturnValue(null);
+    const getTracer = vi.spyOn(trace, 'getTracer');
+    const mw = expressMiddleware();
+    const { req, res } = makeReqRes(200);
+    const next = vi.fn();
+    mw(req as any, res as any, next);
+    expect(next).toHaveBeenCalled();
+    expect(getTracer).not.toHaveBeenCalled();
+  });
+
+  it('creates one span per request and ends it OK on 2xx', () => {
+    const cfg = makeCfg();
+    cfg.sampling.traces.percentage = 1.0;
+    init(cfg);
+    const fakeSpan = makeFakeSpan();
+    const fakeTracer = { startSpan: vi.fn().mockReturnValue(fakeSpan) };
+    vi.spyOn(trace, 'getTracer').mockReturnValue(fakeTracer as any);
+
+    const mw = expressMiddleware();
+    const { req, res } = makeReqRes(200);
+    mw(req as any, res as any, vi.fn());
+    res.emit('finish');
+
+    expect(fakeTracer.startSpan).toHaveBeenCalledTimes(1);
+    expect(fakeTracer.startSpan.mock.calls[0][0]).toBe('GET /test');
+    expect(fakeSpan.setAttributes).toHaveBeenCalledWith({ 'http.status_code': 200, error: false });
+    expect(fakeSpan.end).toHaveBeenCalled();
+    expect(vi.mocked(fetch)).not.toHaveBeenCalled();
+  });
+
+  it('marks the span as error and still submits the 5xx to the Errors API', async () => {
+    const cfg = makeCfg();
+    cfg.sampling.traces.percentage = 1.0;
+    init(cfg);
+    const fakeSpan = makeFakeSpan();
+    const fakeTracer = { startSpan: vi.fn().mockReturnValue(fakeSpan) };
+    vi.spyOn(trace, 'getTracer').mockReturnValue(fakeTracer as any);
+
+    const mw = expressMiddleware();
+    const { req, res } = makeReqRes(500);
+    mw(req as any, res as any, vi.fn());
+    (res as any).end(Buffer.from('{"error":"db down"}'));
+    res.emit('finish');
+
+    expect(fakeSpan.setAttributes).toHaveBeenCalledWith({ 'http.status_code': 500, error: true });
+    expect(fakeSpan.setStatus).toHaveBeenCalledWith(expect.objectContaining({ message: 'HTTP 500' }));
+    expect(fakeSpan.end).toHaveBeenCalled();
+    // 5xx submission (captureExceptionErrors) must survive the composition
+    await vi.waitFor(() => expect(vi.mocked(fetch)).toHaveBeenCalled(), { timeout: 1000 });
+  });
+
+  it('creates an error span at finish for a 5xx on a never-sampled route', () => {
+    const cfg = makeCfg();
+    cfg.sampling.traces.neverSampleRoutes = ['/test'];
+    cfg.sampling.traces.alwaysSampleErrors = true;
+    init(cfg);
+    const fakeSpan = makeFakeSpan();
+    const fakeTracer = { startSpan: vi.fn().mockReturnValue(fakeSpan) };
+    vi.spyOn(trace, 'getTracer').mockReturnValue(fakeTracer as any);
+
+    const mw = expressMiddleware();
+    const { req, res } = makeReqRes(500);
+    mw(req as any, res as any, vi.fn());
+    // Not sampled at request start
+    expect(fakeTracer.startSpan).not.toHaveBeenCalled();
+    res.emit('finish');
+    // The 500 forces an error span after the fact
+    expect(fakeTracer.startSpan).toHaveBeenCalledTimes(1);
+    expect(fakeSpan.setStatus).toHaveBeenCalledWith(expect.objectContaining({ message: 'HTTP 500' }));
+    expect(fakeSpan.end).toHaveBeenCalled();
+  });
+
+  it('creates no span at all for a 2xx on a never-sampled route', () => {
+    const cfg = makeCfg();
+    cfg.sampling.traces.neverSampleRoutes = ['/test'];
+    init(cfg);
+    const fakeTracer = { startSpan: vi.fn().mockReturnValue(makeFakeSpan()) };
+    vi.spyOn(trace, 'getTracer').mockReturnValue(fakeTracer as any);
+
+    const mw = expressMiddleware();
+    const { req, res } = makeReqRes(200);
+    mw(req as any, res as any, vi.fn());
+    res.emit('finish');
+    expect(fakeTracer.startSpan).not.toHaveBeenCalled();
+  });
+
+  it('runs the handler inside the span context so child spans nest', () => {
+    const cfg = makeCfg();
+    cfg.sampling.traces.percentage = 1.0;
+    init(cfg);
+    const fakeSpan = makeFakeSpan();
+    const fakeTracer = { startSpan: vi.fn().mockReturnValue(fakeSpan) };
+    vi.spyOn(trace, 'getTracer').mockReturnValue(fakeTracer as any);
+
+    const mw = expressMiddleware();
+    const { req, res } = makeReqRes(200);
+    let activeSpan: unknown;
+    const next = vi.fn(() => {
+      activeSpan = trace.getSpan(otelContext.active());
+    });
+    mw(req as any, res as any, next);
+    expect(next).toHaveBeenCalled();
+    expect(activeSpan).toBe(fakeSpan);
   });
 });

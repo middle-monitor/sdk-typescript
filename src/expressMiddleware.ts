@@ -10,10 +10,103 @@
  */
 
 import type { Request, Response, NextFunction } from 'express';
+import {
+  context as otelContext,
+  propagation,
+  trace,
+  SpanKind,
+  SpanStatusCode,
+  type Span,
+} from '@opentelemetry/api';
 import { getGlobalClient } from './index';
 import { getMessageFromExceptionBody } from './client';
+import { shouldSampleTrace } from './config';
 
 const BODY_CAPTURE_LIMIT = 4096;
+
+/**
+ * Full Express instrumentation, mirroring the Go SDK's Echo/Gin/HTTP middlewares:
+ * one span per request (W3C trace context extracted from headers, active context
+ * propagated to handlers), error status on 4xx/5xx, an error span for 5xx on
+ * never-sampled routes, plus the 5xx submission of captureExceptionErrors.
+ *
+ * Usage:
+ *   import { expressMiddleware } from '@middle-monitor/sdk/expressMiddleware';
+ *   app.use(expressMiddleware());
+ *
+ * Supersedes captureExceptionErrors(); use one or the other, not both.
+ */
+export function expressMiddleware() {
+  const capture = captureExceptionErrors();
+  return (req: Request, res: Response, next: NextFunction): void => {
+    const client = getGlobalClient();
+    if (!client) {
+      next();
+      return;
+    }
+    const cfg = client.config;
+
+    // Express resolves the route template after routing; the raw path is the route.
+    const route = req.path || req.url || '/';
+    const method = req.method;
+    const url = req.originalUrl || req.url;
+
+    const tracer = trace.getTracer('middle-monitor-sdk');
+    const parentCtx = propagation.extract(otelContext.active(), req.headers);
+    const sampled = shouldSampleTrace(cfg, route, false);
+
+    let span: Span | undefined;
+    if (sampled) {
+      span = tracer.startSpan(
+        `${method} ${route}`,
+        {
+          kind: SpanKind.SERVER,
+          attributes: { 'http.method': method, 'http.route': route, 'http.url': url },
+        },
+        parentCtx,
+      );
+    }
+
+    res.on('finish', () => {
+      const status = res.statusCode;
+      const hasError = status >= 400;
+      const isServerError = status >= 500;
+      if (span) {
+        span.setAttributes({ 'http.status_code': status, error: hasError });
+        span.setStatus(
+          hasError
+            ? { code: SpanStatusCode.ERROR, message: `HTTP ${status}` }
+            : { code: SpanStatusCode.OK },
+        );
+        span.end();
+      } else if (isServerError && shouldSampleTrace(cfg, route, true)) {
+        // Never-sampled route (e.g. /health) that failed: still export an error span
+        const errorSpan = tracer.startSpan(
+          `${method} ${route}`,
+          {
+            kind: SpanKind.SERVER,
+            attributes: {
+              'http.method': method,
+              'http.route': route,
+              'http.url': url,
+              'http.status_code': status,
+              error: true,
+            },
+          },
+          parentCtx,
+        );
+        errorSpan.setStatus({ code: SpanStatusCode.ERROR, message: `HTTP ${status}` });
+        errorSpan.end();
+      }
+    });
+
+    if (span) {
+      otelContext.with(trace.setSpan(parentCtx, span), () => capture(req, res, next));
+    } else {
+      capture(req, res, next);
+    }
+  };
+}
 
 export function captureExceptionErrors() {
   return (req: Request, res: Response, next: NextFunction): void => {

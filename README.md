@@ -65,18 +65,17 @@ const client = getClient();
 
 ### Express middleware
 
+One line to enable automatic capture: one trace per request, error status on 4xx/5xx, and 5xx responses reported to the Errors view.
+
 ```typescript
-import { MiddleMonitorClient } from '@middle-monitor/sdk';
+import { initSimple } from '@middle-monitor/sdk';
+import { expressMiddleware } from '@middle-monitor/sdk/expressMiddleware';
 
-const client = new MiddleMonitorClient({
-  service: 'my-api'
-});
-
-app.use((err: Error, req: Request, res: Response, next: NextFunction) => {
-  client.reportError(err).catch(() => {});
-  next(err);
-});
+initSimple();
+app.use(expressMiddleware());
 ```
+
+To only report 5xx errors without tracing, use `captureExceptionErrors()` instead (do not combine both).
 
 ### Environment variables
 
