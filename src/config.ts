@@ -1,3 +1,5 @@
+import { InvalidConfigValueError } from './errors';
+
 export enum LogLevel {
   DEBUG = 'DEBUG',
   INFO = 'INFO',
@@ -114,7 +116,7 @@ export function configFromEnv(): Config {
   if (tracesPctStr !== undefined) {
     const pct = parseFloat(tracesPctStr);
     if (pct < -1 || pct > 1 || isNaN(pct)) {
-      throw new Error(`MIDDLE_MONITOR_TRACES_SAMPLING must be between -1 and 1, got ${tracesPctStr}`);
+      throw new InvalidConfigValueError(`MIDDLE_MONITOR_TRACES_SAMPLING must be between -1 and 1, got ${tracesPctStr}`);
     }
     cfg.sampling.traces.percentage = pct;
   }
@@ -125,7 +127,7 @@ export function configFromEnv(): Config {
     for (const lvl of logsLevelsStr.split(',')) {
       const upper = lvl.trim().toUpperCase() as LogLevel;
       if (!Object.values(LogLevel).includes(upper)) {
-        throw new Error(`Invalid log level in MIDDLE_MONITOR_LOGS_LEVELS: ${lvl}`);
+        throw new InvalidConfigValueError(`Invalid log level in MIDDLE_MONITOR_LOGS_LEVELS: ${lvl}`);
       }
       levels.push(upper);
     }

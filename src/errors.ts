@@ -19,3 +19,11 @@ export class ConfigError extends MiddleMonitorError {
     this.name = 'ConfigError';
   }
 }
+
+export class InvalidConfigValueError extends ConfigError {
+  constructor(detail: string) {
+    super(detail);
+    this.name = 'InvalidConfigValueError';
+  }
+}
+
