@@ -24,7 +24,7 @@ npm install
 import { MiddleMonitorClient } from '@middle-monitor/sdk';
 
 const client = new MiddleMonitorClient({
-  apiUrl: 'http://localhost:8080',
+  apiUrl: 'https://api.middlemonitor.io',
   service: 'my-service'
 });
 
@@ -81,6 +81,6 @@ app.use((err: Error, req: Request, res: Response, next: NextFunction) => {
 ### Environment variables
 
 ```bash
-export MIDDLE_MONITOR_API_URL=http://monitor.example.com
+export MIDDLE_MONITOR_API_URL=https://api.middlemonitor.io
 export MIDDLE_MONITOR_SERVICE=my-service
 ```

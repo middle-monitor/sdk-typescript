@@ -65,7 +65,7 @@ export function newConfig(
   service: string,
   token?: string,
 ): Config {
-  const ep = (endpoint || 'http://localhost:8080').replace(/\/$/, '');
+  const ep = (endpoint || 'https://api.middlemonitor.io').replace(/\/$/, '');
   return {
     endpoint: ep,
     insecure: ep.startsWith('http://'),
@@ -81,7 +81,7 @@ export function configFromEnv(): Config {
   const endpoint =
     process.env.MIDDLE_MONITOR_API_URL ||
     process.env.OTEL_EXPORTER_OTLP_ENDPOINT ||
-    'http://localhost:8080';
+    'https://api.middlemonitor.io';
 
   const service =
     process.env.MIDDLE_MONITOR_SERVICE ||

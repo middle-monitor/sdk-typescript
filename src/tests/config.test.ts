@@ -46,9 +46,9 @@ describe('newConfig', () => {
     expect(cfg.endpoint).toBe('http://host:8080');
   });
 
-  it('defaults to localhost:8080 for empty endpoint', () => {
+  it('defaults to api.middlemonitor.io for empty endpoint', () => {
     const cfg = newConfig('', 'svc');
-    expect(cfg.endpoint).toBe('http://localhost:8080');
+    expect(cfg.endpoint).toBe('https://api.middlemonitor.io');
   });
 
   it('sets insecure=false for https', () => {
@@ -82,7 +82,7 @@ describe('configFromEnv', () => {
 
   it('returns defaults when no env vars set', () => {
     const cfg = configFromEnv();
-    expect(cfg.endpoint).toBe('http://localhost:8080');
+    expect(cfg.endpoint).toBe('https://api.middlemonitor.io');
     expect(cfg.service).toBe('unknown');
   });
 
