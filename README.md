@@ -2,6 +2,10 @@
 
 TypeScript/JavaScript SDK for capturing and reporting errors to Middle-Monitor.
 
+**Documentation:** [middlemonitor.io/docs#sdk](https://middlemonitor.io/docs#sdk)
+
+For a browser frontend (React, Vue, Angular, Svelte), use [`@middle-monitor/web`](https://github.com/middle-monitor/sdk-web) instead: this package pulls `@opentelemetry/sdk-node` and does not bundle for a browser.
+
 ## Installation
 
 From GitHub:
