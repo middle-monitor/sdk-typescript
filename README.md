@@ -86,4 +86,19 @@ To only report 5xx errors without tracing, use `captureExceptionErrors()` instea
 ```bash
 export MIDDLE_MONITOR_API_URL=https://api.middlemonitor.io
 export MIDDLE_MONITOR_SERVICE=my-service
+export MIDDLE_MONITOR_TOKEN=your_token
+# Optional: stop the Express middleware from reporting 5xx
+export MIDDLE_MONITOR_DISABLE_HTTP_ERROR_REPORTING=true
+```
+
+`MIDDLE_MONITOR_TOKEN` also acts as the opt-in switch: with no token set, the SDK does not initialize itself and every entry point is a no-op, so an application that never configured Middle-Monitor never sends anything.
+
+### Applications that report their own errors
+
+`captureExceptionErrors()` submits every 5xx to the Errors view, building the message from the response body. If your application already reports its errors from its own error handler, you get two entries per failure — one with the real cause, one generic. Disable the middleware's half:
+
+```ts
+const cfg = newConfig(apiUrl, service, token);
+cfg.disableHttpErrorReporting = true;
+init(cfg);
 ```

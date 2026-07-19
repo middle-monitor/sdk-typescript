@@ -262,9 +262,21 @@ describe('Global init API', () => {
     expect(getGlobalClient()).not.toBeNull();
   });
 
-  it('getGlobalClient auto-inits when null', () => {
-    const client = getGlobalClient();
-    expect(client).not.toBeNull();
+  // An application that never opted in must not start exporting: without a
+  // token there is nothing to authenticate with, so auto-init would silently
+  // ship data to the default public endpoint on the first middleware call.
+  it('getGlobalClient stays null without a token in the env', () => {
+    delete process.env.MIDDLE_MONITOR_TOKEN;
+    expect(getGlobalClient()).toBeNull();
+  });
+
+  it('getGlobalClient auto-inits when a token is configured', () => {
+    process.env.MIDDLE_MONITOR_TOKEN = 'tok';
+    try {
+      expect(getGlobalClient()).not.toBeNull();
+    } finally {
+      delete process.env.MIDDLE_MONITOR_TOKEN;
+    }
   });
 
   it('getGlobalConfig returns config after init', () => {

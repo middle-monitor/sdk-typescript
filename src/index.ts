@@ -168,8 +168,12 @@ export function initWithConfig(
   init(newConfig(apiUrl, service, token));
 }
 
+// Auto-initializes from the environment only when a token is configured.
+// Without one there is nothing to authenticate an export, and booting anyway
+// would silently point the exporter at the default public endpoint from an
+// application that never opted in.
 export function getGlobalClient(): MiddleMonitorClient | null {
-  if (!_globalClient) init();
+  if (!_globalClient && process.env.MIDDLE_MONITOR_TOKEN) init();
   return _globalClient;
 }
 

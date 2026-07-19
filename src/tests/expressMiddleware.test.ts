@@ -97,6 +97,21 @@ describe('captureExceptionErrors', () => {
     await vi.waitFor(() => expect(vi.mocked(fetch)).toHaveBeenCalled(), { timeout: 1000 });
   });
 
+  // An application that reports its own errors sets disableHttpErrorReporting so
+  // each failure is recorded once, with the real cause, instead of twice.
+  it('does not submit 5xx when disableHttpErrorReporting is set', async () => {
+    const cfg = makeCfg();
+    cfg.disableHttpErrorReporting = true;
+    init(cfg);
+    const mw = captureExceptionErrors();
+    const { req, res } = makeReqRes(500);
+    mw(req as any, res as any, vi.fn());
+    (res as any).end(Buffer.from('{"error":"db error"}'));
+    res.emit('finish');
+    await new Promise((r) => setTimeout(r, 50));
+    expect(vi.mocked(fetch)).not.toHaveBeenCalled();
+  });
+
   it('does not submit when no global client', async () => {
     // No init → getGlobalClient auto-inits but with default endpoint
     // To test "no client" path, we need to force null

@@ -128,6 +128,7 @@ export function captureExceptionErrors() {
       if (res.statusCode < 500) return;
       const client = getGlobalClient();
       if (!client) return;
+      if (client.config.disableHttpErrorReporting) return;
       const body = chunks.length ? Buffer.concat(chunks) : Buffer.from('');
       const message = getMessageFromExceptionBody(body, res.statusCode);
       let requestBody: string | Buffer | undefined;

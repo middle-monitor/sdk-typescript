@@ -41,6 +41,11 @@ export interface Config {
   sampling: SamplingConfig;
   // Timeout in milliseconds for OTLP exports (default: 5000)
   timeout: number;
+  // Stops the HTTP middlewares from submitting 5xx responses to the Errors view.
+  // Set it when the application already reports its own errors, otherwise every
+  // failure is recorded twice: once with the real cause, once with whatever the
+  // response body carries. Panics/uncaught errors are still reported.
+  disableHttpErrorReporting?: boolean;
 }
 
 export function defaultSamplingConfig(): SamplingConfig {
@@ -111,6 +116,11 @@ export function configFromEnv(): Config {
 
   const cfg = newConfig(endpoint, service, token);
   cfg.protocol = protocol;
+
+  const disableHttpErrors = process.env.MIDDLE_MONITOR_DISABLE_HTTP_ERROR_REPORTING;
+  if (disableHttpErrors !== undefined) {
+    cfg.disableHttpErrorReporting = disableHttpErrors.trim() === 'true';
+  }
 
   const tracesPctStr = process.env.MIDDLE_MONITOR_TRACES_SAMPLING;
   if (tracesPctStr !== undefined) {
